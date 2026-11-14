@@ -1,0 +1,14 @@
+# 构建产物
+*.exe
+*.exe~
+OpenCodeGoProxy.exe
+app/OpenCodeGoProxy.exe
+
+# 日志
+*.log
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
