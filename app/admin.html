@@ -530,7 +530,8 @@ function drawUsage() {
       <div class="card"><b>${fmt(t.tokens) || '0'}</b><span>token 合计</span></div>
       <div class="card"><b>${activeDays} / ${d.day_count}</b><span>有用量的天数</span></div></div>`;
 
-  const dayRows = d.daily.map(r => `<tr><td>${esc(r.date)}</td>${usageCells(r, t.reqs)}</tr>`).join('');
+  // 按天表最近一天排在最上面；图表仍按时间从左到右
+  const dayRows = d.daily.slice().reverse().map(r => `<tr><td>${esc(r.date)}</td>${usageCells(r, t.reqs)}</tr>`).join('');
   const provRows = d.providers.map(p => `<tr><td>${esc(p.provider)}</td>${usageCells(p, t.reqs)}</tr>`).join('');
   const modelRows = d.models.map(m => `<tr><td>${esc(m.provider)}</td><td class="mid" title="${esc(m.model)}">${esc(m.model)}</td>${usageCells(m, t.reqs)}</tr>`).join('');
   const th = '<th>请求</th><th>失败</th><th>输入 token</th><th>输出 token</th><th>合计</th><th>占比</th>';
@@ -538,7 +539,7 @@ function drawUsage() {
   $app.innerHTML = banner() + head + usageToolbar() + cards + usageChart(d) +
     `<h3>按供应商</h3><div class="table-wrap"><table><thead><tr><th>供应商</th>${th}</tr></thead><tbody>${provRows}</tbody></table></div>
      <h3>按模型</h3><div class="table-wrap"><table><thead><tr><th>供应商</th><th>模型</th>${th}</tr></thead><tbody>${modelRows}</tbody></table></div>
-     <h3>按天（${esc(d.from)} 至 ${esc(d.to)}）</h3>
+     <h3>按天（${esc(d.from)} 至 ${esc(d.to)}，最近在前）</h3>
      <div class="table-wrap"><table><thead><tr><th>日期</th>${th}</tr></thead><tbody>${dayRows}</tbody></table></div>` + note;
 }
 
