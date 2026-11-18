@@ -2,25 +2,19 @@ package main
 
 // OpenCode Go 代理托盘工具
 // 背景: OpenCode Go 网关强制要求 x-opencode-session 头, Qoder CN 的自定义模型无法配置请求头,
-//      因此在本机起一个转发服务, 统一补上该头, 让 Qoder 能正常调用 Go 套餐模型。
-// 用法: 运行后托盘出现图标, 在 Qoder 的 Base URL 填 http://127.0.0.1:8787/inference/go/openai/v1
+//      因此在本机起一个网关, 统一补上该头并按「模型管理」里的配置选择供应商/模型/密钥。
+// 用法: 运行后托盘出现图标, 在 Qoder 的 Base URL 填 http://127.0.0.1:8787/v1
 
 import (
-	"bytes"
-	"crypto/sha256"
 	_ "embed"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -55,7 +49,6 @@ const (
 )
 
 var (
-	apiRootRe   = regexp.MustCompile(`^/inference/go/openai/v1/?$`)
 	currentPort atomic.Int32
 	serverMu    sync.Mutex
 	server      *http.Server
@@ -79,8 +72,14 @@ func main() {
 		messageBox("OpenCode Go 代理已经在运行，请查看屏幕右下角托盘图标。")
 		return
 	}
+	// 配置与缓存都放在当前用户的 LOCALAPPDATA, 取不到就别静默写到别处
+	if os.Getenv("LOCALAPPDATA") == "" {
+		messageBox("当前环境没有 LOCALAPPDATA，无法保存配置和日志。")
+		return
+	}
 
 	initLog()
+	loadConfig()
 	systray.Run(onReady, onExit)
 }
 
@@ -92,6 +91,7 @@ func onReady() {
 	statusItem = systray.AddMenuItem("状态：启动中…", "")
 	statusItem.Disable()
 	systray.AddSeparator()
+	mModels := systray.AddMenuItem("模型管理…", "打开供应商与模型管理窗口")
 	mCopy := systray.AddMenuItem("复制 Base URL", "复制后粘贴到 Qoder 的自定义模型")
 	mHelp := systray.AddMenuItem("使用说明", "")
 	mLog := systray.AddMenuItem("打开日志", "")
@@ -118,9 +118,15 @@ func onReady() {
 	}
 
 	go func() {
+		for range mModels.ClickedCh {
+			openAdminWindow(adminURL())
+		}
+	}()
+
+	go func() {
 		for range mCopy.ClickedCh {
-			if err := setClipboard(baseURL()); err == nil {
-				systray.SetTooltip("已复制：" + baseURL())
+			if err := setClipboard(clientBaseURL()); err == nil {
+				systray.SetTooltip("已复制：" + clientBaseURL())
 				time.AfterFunc(3*time.Second, func() { systray.SetTooltip(appTitle + " · 运行中") })
 			}
 		}
@@ -154,6 +160,7 @@ func onReady() {
 		for range mRestart.ClickedCh {
 			logf("手动重启服务")
 			stopServer()
+			loadConfig()
 			if err := startServer(); err != nil {
 				systray.SetIcon(iconRed)
 				systray.SetTooltip(appTitle + " · 启动失败")
@@ -177,12 +184,16 @@ func onExit() {
 
 func markRunning() {
 	systray.SetIcon(iconGreen)
-	systray.SetTooltip(appTitle + " · 运行中 " + baseURL())
+	systray.SetTooltip(appTitle + " · 运行中 " + clientBaseURL())
 	statusItem.SetTitle("状态：运行中（127.0.0.1:" + strconv.Itoa(int(currentPort.Load())) + "）")
 }
 
-func baseURL() string {
-	return "http://127.0.0.1:" + strconv.Itoa(int(currentPort.Load())) + "/inference/go/openai/v1"
+func clientBaseURL() string {
+	return "http://127.0.0.1:" + strconv.Itoa(int(currentPort.Load())) + "/v1"
+}
+
+func adminURL() string {
+	return "http://127.0.0.1:" + strconv.Itoa(int(currentPort.Load())) + "/_admin"
 }
 
 func startServer() error {
@@ -195,7 +206,7 @@ func startServer() error {
 		}
 		currentPort.Store(int32(port))
 		srv := &http.Server{
-			Handler:  newProxy(),
+			Handler:  newGateway(),
 			ErrorLog: log.New(io.Discard, "", 0),
 		}
 		server = srv
@@ -204,7 +215,7 @@ func startServer() error {
 				logf("服务退出: %v", err)
 			}
 		}()
-		logf("转发服务已启动: %s", baseURL())
+		logf("网关服务已启动: %s（管理页 %s）", clientBaseURL(), adminURL())
 		return nil
 	}
 	return fmt.Errorf("端口 %d-%d 均被占用", basePort, maxPort)
@@ -219,82 +230,24 @@ func stopServer() {
 	}
 }
 
-func newProxy() http.Handler {
-	rp := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			req.URL.Scheme = "https"
-			req.URL.Host = "opencode.ai"
-			req.Host = "opencode.ai"
-			req.Header.Set("User-Agent", userAgent)
-		},
-		ModifyResponse: func(resp *http.Response) error {
-			logf("%s %s -> %d", resp.Request.Method, resp.Request.URL.Path, resp.StatusCode)
-			return nil
-		},
-		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			logf("%s %s -> 转发失败: %v", r.Method, r.URL.Path, err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadGateway)
-			fmt.Fprintf(w, `{"error":{"type":"proxy_error","message":%q}}`, err.Error())
-		},
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Qoder 保存模型时会 GET Base URL 根路径做校验, 上游无此路由, 转成模型列表
-		if r.Method == http.MethodGet && apiRootRe.MatchString(r.URL.Path) {
-			r.URL.Path = "/inference/go/openai/v1/models"
-		}
-		if r.Header.Get("x-opencode-session") == "" {
-			r.Header.Set("x-opencode-session", sessionFor(r))
-		}
-		rp.ServeHTTP(w, r)
-	})
-}
-
-// sessionFor 按“会话首条用户消息”派生稳定的会话 ID:
-// 同一会话多轮请求哈希一致, 不同会话互不干扰, 便于上游做路由与提示缓存。
-func sessionFor(r *http.Request) string {
-	if r.Body == nil {
-		return sessionID
-	}
-	body, err := io.ReadAll(r.Body)
-	r.Body.Close()
-	if err != nil {
-		r.Body = http.NoBody
-		return sessionID
-	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
-
-	var payload struct {
-		Messages []struct {
-			Role    string          `json:"role"`
-			Content json.RawMessage `json:"content"`
-		} `json:"messages"`
-	}
-	if json.Unmarshal(body, &payload) != nil {
-		return sessionID
-	}
-	for _, m := range payload.Messages {
-		if m.Role == "user" {
-			sum := sha256.Sum256(m.Content)
-			return "ses_" + hex.EncodeToString(sum[:8])
-		}
-	}
-	return sessionID
-}
-
 func helpText() string {
 	return appTitle + " 使用说明\n\n" +
-		"1. 托盘图标绿色 = 转发服务正常，红色 = 未启动。\n\n" +
-		"2. 在 Qoder CN 中打开：设置 → 模型 → 添加自定义模型，\n" +
-		"   协议选 OpenAI 兼容 / Chat Completions。\n\n" +
-		"3. Base URL 填：\n   " + baseURL() + "\n\n" +
-		"4. API Key 填你自己的 OpenCode Go 密钥（oc_sk_ 开头）。\n\n" +
-		"5. 模型 ID 填 Go 套餐里的模型，例如 deepseek-v4.1-flash。\n\n" +
-		"提示：右键托盘图标可复制 Base URL、查看日志、开关开机自启。"
+		"1. 托盘图标绿色 = 网关正常，红色 = 未启动。\n\n" +
+		"2. 右键托盘 →「模型管理…」，添加供应商（接口地址 + API Key）。\n" +
+		"   本工具不内置任何 Key；供应商 API Key 留空时，直接用客户端带来的 Key。\n\n" +
+		"3. 打开某个供应商的模型页会自动从上游拉取模型：\n" +
+		"   接口地址是 " + GoBaseURL + " 时，自动补 Go 需要的会话头，\n" +
+		"   并把官网每个模型的月度额度从高到低排在前面，勾选后导入，再设一个默认模型。\n\n" +
+		"4. 在 Qoder CN 中打开：设置 → 模型 → 添加自定义模型，协议选 OpenAI 兼容。\n" +
+		"   Base URL 填：\n   " + clientBaseURL() + "\n" +
+		"   API Key 与模型 ID 随便填，实际调用由本工具的默认供应商/默认模型决定；\n" +
+		"   模型 ID 若与「模型管理」里某个模型同名，则直接走那个模型。\n\n" +
+		"5. 配置即时生效，不用重启；配置文件在\n   " + filepath.Join(configDir(), "config.json") + "\n\n" +
+		"提示：老地址 " + "http://127.0.0.1:" + strconv.Itoa(int(currentPort.Load())) + "/inference/go/openai/v1 仍然可用。"
 }
 
 func initLog() {
-	dir := filepath.Join(os.Getenv("LOCALAPPDATA"), "OpenCodeGoProxy")
+	dir := configDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
 	}
@@ -386,4 +339,46 @@ func setClipboard(text string) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	cmd.Stdin = strings.NewReader(text)
 	return cmd.Run()
+}
+
+// openAdminWindow 用系统自带的 Edge/Chrome 应用窗口打开管理界面:
+// 独立窗口、没有地址栏和标签页，看起来就是个 Windows 程序，且不需要额外依赖。
+func openAdminWindow(u string) {
+	roots := []string{
+		os.Getenv("ProgramFiles(x86)"),
+		os.Getenv("ProgramFiles"),
+		os.Getenv("LOCALAPPDATA"),
+	}
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		for _, name := range []string{
+			filepath.Join(root, "Microsoft", "Edge", "Application", "msedge.exe"),
+			filepath.Join(root, "Google", "Chrome", "Application", "chrome.exe"),
+		} {
+			if _, err := os.Stat(name); err != nil {
+				continue
+			}
+			cmd := exec.Command(name, "--app="+u, "--window-size=1180,840")
+			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+			if err := cmd.Start(); err != nil {
+				logf("以应用窗口打开管理页失败: %v", err)
+				continue
+			}
+			logf("管理窗口已打开: %s", u)
+			return
+		}
+	}
+	logf("未找到 Edge/Chrome，用默认浏览器打开管理页")
+	openInDefaultBrowser(u)
+}
+
+func openInDefaultBrowser(u string) {
+	cmd := exec.Command("cmd", "/c", "start", "", u)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	if err := cmd.Start(); err != nil {
+		logf("打开管理页失败: %v", err)
+		messageBox("无法打开浏览器，请手动访问：" + u)
+	}
 }

@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>模型管理 · OpenCode Go 代理</title>
+<style>
+  :root{
+    --bg:#f4f6f9; --panel:#fff; --panel2:#eff2f7; --line:#dbe1ea;
+    --fg:#1c2027; --muted:#656f80; --accent:#2f6fed; --green:#0d6832;
+    --amber:#7a4f00; --red:#c22f2f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  header{padding:18px 24px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+  h1{margin:0;font-size:17px;font-weight:600}
+  h1 span{color:var(--muted);font-weight:400;font-size:13px;margin-left:8px}
+  .接入{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center}
+  .接入 code{background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:Consolas,monospace;font-size:13px}
+  .接入 .hint{color:var(--muted);font-size:12px}
+  main{padding:20px 24px 60px;max-width:1180px}
+  .bar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+  .bar h2{margin:0;font-size:15px;font-weight:600}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+  .table-wrap{overflow-x:auto;border-radius:8px}
+  th,td{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap;vertical-align:middle}
+  tr:nth-child(even) td{background:#fafbfd}
+  tr:last-child td{border-bottom:none}
+  th{background:var(--panel2);color:var(--muted);font-weight:500;font-size:12px}
+  td.url{max-width:340px;overflow:hidden;text-overflow:ellipsis;font-family:Consolas,monospace;font-size:12.5px;color:var(--muted)}
+  td.mid{max-width:260px;overflow:hidden;text-overflow:ellipsis;font-family:Consolas,monospace;font-size:13px}
+  th.ops,td.ops{width:1%;text-align:right}
+  th.pick,td.pick{width:1%;text-align:center}
+  .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;border:1px solid}
+  .tag.def{color:var(--green);border-color:#a5d8b6;background:#e9f7ee}
+  .tag.on{color:var(--accent);border-color:#bccfef;background:#eaf1fe}
+  .tag.off{color:var(--muted);border-color:var(--line);background:var(--panel2)}
+  .tag.warn{color:var(--amber);border-color:#e5c489;background:#fdf4e2}
+  button{font:inherit;background:var(--panel);color:var(--fg);border:1px solid #ccd4e0;border-radius:6px;padding:5px 11px;cursor:pointer}
+  button:hover:not(:disabled){border-color:#9db4e6;background:#f3f7ff}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.primary:hover:not(:disabled){background:#2559c9;border-color:#2559c9}
+  button.danger{color:var(--red);border-color:#e2b6b6}
+  button.danger:hover:not(:disabled){background:#fdeeee;border-color:#d49a9a}
+  .link{background:none;border:none;color:var(--accent);padding:2px 6px}
+  .link:hover:not(:disabled){background:#eaf1fe;border-color:transparent}
+  .link.danger{color:var(--red)}
+  .link.danger:hover:not(:disabled){background:#fdeeee;border-color:transparent}
+  form{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px 20px;max-width:620px}
+  label{display:block;margin-bottom:14px}
+  label>span{display:block;color:var(--muted);font-size:12.5px;margin-bottom:5px}
+  input[type=text],input[type=number]{width:100%;padding:8px 10px;background:var(--panel);border:1px solid #ccd4e0;border-radius:6px;color:var(--fg);font-family:Consolas,monospace;font-size:13.5px}
+  input[type=text]:focus,input[type=number]:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px #e3ecfd}
+  .check{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+  .check input{width:auto;margin:0}
+  .check span{margin:0;color:var(--fg)}
+  .desc{color:var(--muted);font-size:12px;margin:-9px 0 14px}
+  .actions{display:flex;gap:10px;align-items:center;margin-top:6px}
+  .banner{border:1px solid #e5c489;background:#fdf4e2;color:var(--amber);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px}
+  .empty{padding:26px;text-align:center;color:var(--muted);background:var(--panel);border:1px dashed var(--line);border-radius:8px}
+  #toast{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:8px;max-width:420px}
+  .toast{padding:10px 14px;border-radius:8px;border:1px solid;font-size:13px;white-space:pre-wrap;word-break:break-all;background:var(--panel);box-shadow:0 2px 10px rgba(20,30,50,.12)}
+  .toast.ok{border-color:#a5d8b6;background:#e9f7ee;color:var(--green)}
+  .toast.err{border-color:#e2b6b6;background:#fdeeee;color:#a82020}
+  .toast .x{float:right;cursor:pointer;color:var(--muted);margin-left:10px}
+  .list-tools{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+  .list-tools input[type=text]{width:260px}
+  .num{font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<header>
+  <h1>OpenCode Go 代理 <span>模型管理</span></h1>
+  <div class="接入" id="接入"></div>
+</header>
+<main id="app">加载中…</main>
+<div id="toast"></div>
+<script>
+const $app = document.getElementById('app');
+let CONFIG = null;
+let LAST = null; // 模型页当次自动获取的结果：{pid, models, source, error}
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)};
+  const res = await fetch(path, opt);
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error((data && data.error) || ('HTTP ' + res.status));
+  return data;
+}
+
+function toast(msg, kind) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + (kind || 'ok');
+  el.innerHTML = '<span class="x">×</span>' + esc(msg);
+  el.querySelector('.x').onclick = () => el.remove();
+  document.getElementById('toast').appendChild(el);
+  if ((kind || 'ok') === 'ok') setTimeout(() => el.remove(), 1800);
+}
+
+async function reload() { CONFIG = await api('/_api/config'); renderHeader(); }
+
+function renderHeader() {
+  const c = CONFIG;
+  document.getElementById('接入').innerHTML =
+    '客户端 Base URL：<code>' + esc(c.client_base_url) + '</code>' +
+    '<button class="link" onclick="copyText(\'' + esc(c.client_base_url) + '\')">复制</button>' +
+    '<span class="hint">其它工具填这个地址，API Key 和模型名随便写，由这里决定实际调用哪个供应商与默认模型</span>' +
+    (c.default ? '' : '<span class="tag warn">未设默认供应商</span>');
+}
+
+function copyText(t) {
+  navigator.clipboard.writeText(t).then(() => toast('已复制：' + t), () => toast('复制失败，请手动选取', 'err'));
+}
+
+const go = h => location.hash = h;
+const fmt = n => n ? n.toLocaleString('en-US') : '';
+
+function banner() {
+  return CONFIG.config_error ? '<div class="banner">' + esc(CONFIG.config_error) + '</div>' : '';
+}
+
+function renderProviders() {
+  const rows = CONFIG.providers.map((p, i) => {
+    const tags = [p.is_default ? '<span class="tag def">默认</span>' : '', p.is_go ? '<span class="tag on" title="自动补会话头，并显示月度额度">Go</span>' : ''].join(' ');
+    const dm = p.models.find(m => m.default);
+    const defCell = dm ? esc(dm.id) : (p.is_default ? '<span class="tag warn" title="客户端模型名没命中已配置模型时，直接沿用客户端传来的模型名">未设</span>' : '<span class="tag off">未设</span>');
+    return `<tr>
+      <td>${esc(p.name)} ${tags}</td>
+      <td class="url" title="${esc(p.base_url)}">${esc(p.base_url)}</td>
+      <td class="mid" title="${dm ? esc(dm.id) : ''}">${defCell}</td>
+      <td>${p.key_set ? `<span class="tag on">${esc(p.key_masked)}</span>` : '<span class="tag off">透传客户端 Key</span>'}</td>
+      <td class="ops">
+        <button class="link" onclick="go('#/models/${encodeURIComponent(p.id)}')">模型 ${p.models.length}</button>
+        <button class="link" onclick="go('#/provider/${encodeURIComponent(p.id)}')">编辑</button>
+        ${p.is_default ? '' : `<button class="link" onclick="setDefault(${i})">设为默认</button>`}
+        <button class="link danger" onclick="delProvider(${i})">删除</button>
+      </td></tr>`;
+  }).join('');
+
+  $app.innerHTML = banner() + `<div class="bar"><h2>供应商</h2>
+      <button class="primary" onclick="go('#/provider/new')">新增供应商</button></div>` +
+    (CONFIG.providers.length
+      ? `<div class="table-wrap"><table><thead><tr><th>名称</th><th>接口地址</th><th>默认模型</th><th>API Key</th><th class="ops">操作</th></tr></thead><tbody>${rows}</tbody></table></div>
+         <p class="desc" style="margin-top:12px">默认模型 = 客户端模型名没命中任何已配置模型时走的那一个；默认供应商没设就是原样沿用客户端传来的模型名。API Key 留空 = 透传客户端带来的 Key；填了则由代理统一覆盖，客户端那个字段随便写。接口地址是 OpenCode Go 时自动补它要求的会话头。</p>`
+      : '<div class="empty">还没有供应商，点右上角「新增供应商」开始配置。</div>');
+}
+
+async function setDefault(i) {
+  try { await api('/_api/provider/default', {id: CONFIG.providers[i].id}); await reload(); renderProviders(); }
+  catch (e) { toast(e.message, 'err'); }
+}
+
+async function delProvider(i) {
+  const p = CONFIG.providers[i];
+  if (!confirm(`确定删除供应商「${p.name}」？它下面配置的 ${p.models.length} 个模型会一并删除。`)) return;
+  try { await api('/_api/provider/delete', {id: p.id}); LAST = null; await reload(); renderProviders(); }
+  catch (e) { toast(e.message, 'err'); }
+}
+
+function renderProviderForm(id) {
+  const p = id ? CONFIG.providers.find(x => x.id === id) : null;
+  if (id && !p) { toast('供应商不存在', 'err'); return go('#/'); }
+  $app.innerHTML = `<div class="bar"><h2>${p ? '编辑供应商' : '新增供应商'}</h2>
+      <button onclick="go('#/')">返回列表</button></div>
+    <form id="f">
+      <label><span>名称</span><input type="text" name="name" value="${esc(p?.name || '')}" autocomplete="off"></label>
+      <label><span>接口地址（OpenAI 兼容根路径，一般以 /v1 结尾）</span>
+        <input type="text" name="base_url" value="${esc(p?.base_url || '')}" placeholder="https://api.example.com/v1" autocomplete="off"></label>
+      <p class="desc">填 https://opencode.ai/inference/go/openai/v1 就是 OpenCode Go：自动补会话头，模型页还会显示每个模型的月度额度。</p>
+      <label><span>API Key</span>
+        <input type="text" name="api_key" value="" placeholder="${p?.key_set ? '已配置 ' + esc(p.key_masked) + '（留空表示不修改）' : '留空则透传客户端带来的 Key'}" autocomplete="off"></label>
+      <div class="actions"><button class="primary" type="submit">保存</button>
+        ${p ? `<button type="button" onclick="go('#/models/${encodeURIComponent(p.id)}')">管理模型</button>` : ''}</div>
+    </form>`;
+  document.getElementById('f').onsubmit = async ev => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    try {
+      await api('/_api/provider/save', {
+        id: p?.id || '',
+        name: fd.get('name'), base_url: fd.get('base_url'), api_key: fd.get('api_key'),
+      });
+      await reload(); go('#/'); toast('已保存');
+    } catch (e) { toast(e.message, 'err'); }
+  };
+}
+
+// 模型页：每次打开自动从上游获取，已配置/未配置合并在一张表里
+async function renderModels(pid) {
+  const p = CONFIG.providers.find(x => x.id === pid);
+  if (!p) { toast('供应商不存在', 'err'); return go('#/'); }
+  if (!LAST || LAST.pid !== pid) {
+    $app.innerHTML = '<div class="empty">正在从上游获取模型列表…</div>';
+    LAST = {pid, models: [], source: '', error: ''};
+    try {
+      const r = await api('/_api/models/fetch', {provider_id: pid});
+      LAST.models = r.models; LAST.source = r.source;
+    } catch (e) { LAST.error = e.message; }
+  }
+  if (LAST.error) $app.innerHTML = '<div class="banner">自动获取失败：' + esc(LAST.error) + '</div>';
+
+  const has = new Map(p.models.map(m => [m.id.toLowerCase(), m]));
+  const rows = LAST.models.map((f, i) => ({i, id: f.id, f, m: has.get(f.id.toLowerCase())}));
+  const seen = new Set(rows.map(r => r.id.toLowerCase()));
+  p.models.forEach(m => {
+    if (!seen.has(m.id.toLowerCase())) rows.push({i: -1, id: m.id, f: m, m});
+  });
+  const rank = r => r.f.monthly < 0 ? Infinity : (r.f.monthly || 0);
+  rows.sort((a, b) => (rank(b) - rank(a)) || ((b.f.context || 0) - (a.f.context || 0)) || a.id.localeCompare(b.id));
+  const monthly = p.is_go;
+
+  const body = rows.map(r => {
+    const f = r.f, m = r.m;
+    const tags = m ? (m.default ? `<span class="tag def">${p.is_default ? '默认' : '该供应商默认'}</span>` : '<span class="tag on">已配置</span>') : '';
+    const money = f.monthly < 0 ? '<span class="tag def">不限额</span>' : f.monthly ? '$' + f.monthly : '<span class="tag off">未取到</span>';
+    const ops = m
+      ? `<button class="link" onclick="go('#/model/${encodeURIComponent(p.id)}/${encodeURIComponent(m.id)}')">编辑</button>` +
+        (m.default && p.is_default ? '' : `<button class="link" onclick="setDefaultModel('${esc(p.id)}','${esc(m.id)}')">设为默认</button>`) +
+        `<button class="link danger" onclick="delModel('${esc(p.id)}','${esc(m.id)}')">删除</button>`
+      : `<button class="link" onclick="addModel(${r.i})">添加</button>`;
+    return `<tr data-text="${esc(f.id.toLowerCase())}">
+      <td class="pick">${m ? '' : `<input type="checkbox" data-i="${r.i}">`}</td>
+      <td class="mid" title="${esc(f.id)}">${esc(f.id)} ${tags}</td>
+      ${monthly ? `<td${f.monthly > 0 ? ' class="num"' : ''}>${money}</td>` : ''}
+      <td class="num">${fmt(f.context) || '<span class="tag off">未填</span>'}</td>
+      <td class="num">${fmt(f.max_output) || '<span class="tag off">未填</span>'}</td>
+      <td>${f.thinking ? '<span class="tag on">支持</span>' : '<span class="tag off">-</span>'}</td>
+      <td class="ops">${ops}</td></tr>`;
+  }).join('');
+
+  const head = `<th class="pick"></th><th>模型 ID</th>${monthly ? '<th>月度额度</th>' : ''}<th>上下文</th><th>最大输出</th><th>思考</th><th class="ops">操作</th>`;
+  $app.innerHTML = `${banner()}<div class="bar">
+      <h2>${esc(p.name)} · 模型 <span style="color:var(--muted);font-weight:400">已配置 ${p.models.length} / 上游 ${rows.length} 个${p.is_default ? '' : ' · 非默认供应商'}</span></h2>
+      <div>
+        <button class="primary" onclick="importChecked('${esc(p.id)}')">导入所选 <span id="cnt">0</span></button>
+        <button onclick="refreshModels('${esc(p.id)}')">重新获取</button>
+        <button onclick="go('#/model/${encodeURIComponent(p.id)}/new')">新增模型</button>
+        <button onclick="go('#/')">返回供应商</button>
+      </div></div>
+    <div class="list-tools">
+      <input type="text" id="q" placeholder="按模型名筛选">
+      <button onclick="selectVisible(true)">全选可见</button>
+      <button onclick="selectVisible(false)">全不选</button>
+    </div>
+    ${rows.length
+      ? `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody id="rows">${body}</tbody></table></div>
+         <p class="desc" style="margin-top:12px">${esc(LAST.source || '元数据来源未标明')}<br>
+         ${monthly ? '月度额度是 OpenCode Go 官网 Go 档的每月可用额度，∞ 记作不限额，已按从高到低排好；' : ''}
+         勾选未配置的模型点「导入所选」，或单行「添加」。「设为默认」= 客户端模型名没命中任何已配置模型时走这一个，同时把该供应商设为默认。</p>`
+      : '<div class="empty">上游没有返回任何模型。</div>'}`;
+
+  const box = document.getElementById('rows');
+  if (!box) return;
+  box.addEventListener('change', refreshCount);
+  document.getElementById('q').addEventListener('input', ev => {
+    const q = ev.target.value.toLowerCase();
+    box.querySelectorAll('tr').forEach(d => d.style.display = d.dataset.text.includes(q) ? '' : 'none');
+  });
+  refreshCount();
+}
+
+function refreshCount() {
+  document.getElementById('cnt').textContent = document.querySelectorAll('#rows input:checked').length;
+}
+
+function selectVisible(on) {
+  document.querySelectorAll('#rows tr').forEach(tr => {
+    if (tr.style.display === 'none') return;
+    const box = tr.querySelector('input[type=checkbox]');
+    if (box) box.checked = on;
+  });
+  refreshCount();
+}
+
+function refreshModels(pid) { LAST = null; renderModels(pid); }
+
+async function addModel(i) {
+  const f = LAST.models[i];
+  try {
+    await api('/_api/model/save', {
+      provider_id: LAST.pid, original_id: '', id: f.id,
+      context: String(f.context || ''), max_output: String(f.max_output || ''), thinking: f.thinking,
+    });
+    await reload(); renderModels(LAST.pid); toast('已添加 ' + f.id);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function importChecked(pid) {
+  const picked = [...document.querySelectorAll('#rows input:checked')].map(i => LAST.models[+i.dataset.i]);
+  if (!picked.length) return toast('先勾选要导入的模型', 'err');
+  try {
+    const r = await api('/_api/models/import', {provider_id: pid, models: picked});
+    await reload(); renderModels(pid);
+    toast(`已导入 ${r.imported} 个模型` + (r.skipped ? `，跳过 ${r.skipped} 个已存在` : '') + '。记得给常用模型补上上下文/输出，并设一个默认模型。');
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function setDefaultModel(pid, mid) {
+  try { await api('/_api/model/default', {provider_id: pid, model_id: mid}); await reload(); renderModels(pid); }
+  catch (e) { toast(e.message, 'err'); }
+}
+
+async function delModel(pid, mid) {
+  if (!confirm(`确定删除模型「${mid}」？`)) return;
+  try { await api('/_api/model/delete', {provider_id: pid, model_id: mid}); await reload(); renderModels(pid); }
+  catch (e) { toast(e.message, 'err'); }
+}
+
+function renderModelForm(pid, mid) {
+  const p = CONFIG.providers.find(x => x.id === pid);
+  if (!p) { toast('供应商不存在', 'err'); return go('#/'); }
+  const m = mid === 'new' ? null : p.models.find(x => x.id === mid);
+  if (mid !== 'new' && !m) { toast('模型不存在', 'err'); return go('#/models/' + encodeURIComponent(pid)); }
+  $app.innerHTML = `<div class="bar"><h2>${m ? '编辑模型' : '新增模型'} · ${esc(p.name)}</h2>
+      <button onclick="go('#/models/${encodeURIComponent(p.id)}')">返回模型列表</button></div>
+    <form id="f">
+      <label><span>模型 ID（上游真实名称，客户端也用它指定）</span>
+        <input type="text" name="id" value="${esc(m?.id || '')}" placeholder="deepseek-v4.1-flash" autocomplete="off"></label>
+      <label><span>上下文（token）</span><input type="text" name="context" value="${m?.context || ''}" placeholder="128000 或 128k，可留空" autocomplete="off"></label>
+      <label><span>最大输出（token）</span><input type="text" name="max_output" value="${m?.max_output || ''}" placeholder="8192，可留空" autocomplete="off"></label>
+      <label class="check"><input type="checkbox" name="thinking" ${m?.thinking ? 'checked' : ''}><span>支持思考 / 推理</span></label>
+      <label class="check"><input type="checkbox" name="default" ${m?.default ? 'checked' : ''}><span>设为默认模型（未指定模型时走它）</span></label>
+      <div class="actions"><button class="primary" type="submit">保存</button></div>
+    </form>`;
+  document.getElementById('f').onsubmit = async ev => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    try {
+      await api('/_api/model/save', {
+        provider_id: p.id, original_id: m?.id || '',
+        id: fd.get('id'), context: fd.get('context'), max_output: fd.get('max_output'),
+        thinking: fd.get('thinking') === 'on', default: fd.get('default') === 'on',
+      });
+      await reload(); go('#/models/' + encodeURIComponent(p.id)); toast('已保存');
+    } catch (e) { toast(e.message, 'err'); }
+  };
+}
+
+const routes = [
+  [/^#\/$/, renderProviders],
+  [/^#\/provider\/new$/, () => renderProviderForm('')],
+  [/^#\/provider\/(.+)$/, m => renderProviderForm(decodeURIComponent(m[1]))],
+  [/^#\/models\/([^?]+)$/, m => renderModels(decodeURIComponent(m[1]))],
+  [/^#\/model\/([^/]+)\/new$/, m => renderModelForm(decodeURIComponent(m[1]), 'new')],
+  [/^#\/model\/([^/]+)\/(.+)$/, m => renderModelForm(decodeURIComponent(m[1]), decodeURIComponent(m[2]))],
+];
+
+async function route() {
+  try { await reload(); } catch (e) { $app.innerHTML = '<div class="banner">' + esc(e.message) + '</div>'; return; }
+  LAST = null;
+  const h = location.hash || '#/';
+  for (const re of routes) {
+    const m = h.match(re[0]);
+    if (m) return re[1](m);
+  }
+  renderProviders();
+}
+
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
