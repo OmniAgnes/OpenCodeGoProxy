@@ -277,6 +277,26 @@ func TestUsageSummaryRejectsBadRanges(t *testing.T) {
 	}
 }
 
+// 重启进程（关文件再打开）不能丢掉已有记录，也不能把文件截断
+func TestUsageReopenKeepsRecords(t *testing.T) {
+	useTempUsage(t)
+	appendUsage(usageRec{Date: "2026-01-04", Provider: "P", Model: "m", Status: 200, Prompt: 1, Completion: 2})
+	closeUsage()
+	openUsage()
+	if usageF == nil {
+		t.Fatalf("重新打开用量文件失败: %s", usagePath)
+	}
+	appendUsage(usageRec{Date: "2026-01-05", Provider: "P", Model: "m", Status: 200, Prompt: 3, Completion: 4})
+
+	got := readUsage(t)
+	if len(got) != 2 {
+		t.Fatalf("记录数 = %d，想要 2 条: %+v", len(got), got)
+	}
+	if got[0].Prompt != 1 || got[1].Prompt != 3 {
+		t.Errorf("记录 = %+v，想要旧一条在前、新一条在后", got)
+	}
+}
+
 func TestUsageDateUsesLocalDay(t *testing.T) {
 	got := usageDate(time.Date(2026, 1, 5, 23, 30, 0, 0, time.Local))
 	if got != "2026-01-05" {

@@ -514,7 +514,7 @@ function drawUsage() {
   const note = `<p class="desc" style="margin-top:14px">请求数 = 网关 POST 到上游的次数；GET、以及由本机返回、没转发给上游的请求都不算。` +
     `token 取自上游响应里的 usage，流式没带 include_usage 时只有请求数。<br>` +
     `模型是实际打出去的那个名字：客户端模型名没命中已配置模型时，记的就是客户端带来的名字。<br>` +
-    `记录文件：<code style="font-family:Consolas,monospace">${esc(CONFIG.usage_path || '')}</code>，只在本机，重启不清空。</p>`;
+    `记录文件：<code style="font-family:Consolas,monospace">${esc(CONFIG.usage_path || '')}</code>，只在本机，重启、关机都不清空。</p>`;
   if (!t.reqs) {
     const hint = d.records
       ? `记录里已有 ${fmt(d.records)} 条，最近一条在 ${esc(d.last_date || '')}，把时间范围挪到那几天再看看。`

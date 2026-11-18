@@ -61,9 +61,76 @@ var (
 )
 
 var (
-	user32         = windows.NewLazySystemDLL("user32.dll")
-	procMessageBox = user32.NewProc("MessageBoxW")
+	user32            = windows.NewLazySystemDLL("user32.dll")
+	procMessageBox    = user32.NewProc("MessageBoxW")
+	procEnumWindows   = user32.NewProc("EnumWindows")
+	procIsWindowVis   = user32.NewProc("IsWindowVisible")
+	procGetWindowText = user32.NewProc("GetWindowTextW")
+	procShowWindow    = user32.NewProc("ShowWindow")
 )
+
+// 管理窗口的标题: 页面加载完是「模型管理 · OpenCode Go 代理」，加载前是地址本身。
+// 普通标签页窗口尾巴上还会跟「 - Microsoft Edge」，不会误伤。
+const adminTitleEnd = "· OpenCode Go 代理"
+
+var (
+	enumMu      sync.Mutex
+	enumHandles []uintptr
+	// 枚举窗口用的回调: 收下标题是我们的管理页（加载前按地址、加载后按标题尾巴）的可见窗口
+	enumCallback = syscall.NewCallback(func(h uintptr, lParam uintptr) uintptr {
+		vis, _, _ := procIsWindowVis.Call(h)
+		if vis == 0 {
+			return 1
+		}
+		buf := make([]uint16, 512)
+		n, _, _ := procGetWindowText.Call(h, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+		if n == 0 {
+			return 1
+		}
+		t := windows.UTF16ToString(buf[:n])
+		if strings.HasSuffix(t, adminTitleEnd) || strings.Contains(t, adminHostPort()) {
+			enumMu.Lock()
+			enumHandles = append(enumHandles, h)
+			enumMu.Unlock()
+		}
+		return 1
+	})
+)
+
+// adminHostPort 是加载前窗口标题里的地址片段，如 127.0.0.1:8787
+func adminHostPort() string {
+	return "127.0.0.1:" + strconv.Itoa(int(currentPort.Load()))
+}
+
+// adminWindowHandles 列出当前已打开的管理窗口句柄
+func adminWindowHandles() []uintptr {
+	enumMu.Lock()
+	enumHandles = nil
+	enumMu.Unlock()
+	procEnumWindows.Call(enumCallback, 0)
+	enumMu.Lock()
+	defer enumMu.Unlock()
+	return append([]uintptr(nil), enumHandles...)
+}
+
+// maximizeAdminWindow 一发现管理窗口就最大化，并在头两秒里持续压制。
+// --start-maximized 只在浏览器进程冷启动时管用，Edge 已经在跑就会被忽略；
+// 而且应用窗口在页面加载完会按自己记住的位置尺寸重摆一次，只调一次会被盖掉。
+func maximizeAdminWindow() {
+	deadline := time.Now().Add(12 * time.Second)
+	var asserted time.Duration
+	for time.Now().Before(deadline) && asserted < 2*time.Second {
+		time.Sleep(100 * time.Millisecond)
+		hs := adminWindowHandles()
+		if len(hs) == 0 {
+			continue
+		}
+		for _, h := range hs {
+			procShowWindow.Call(h, 3) // SW_SHOWMAXIMIZED
+		}
+		asserted += time.Duration(100 * time.Millisecond)
+	}
+}
 
 func main() {
 	// 单实例: 托盘工具重复运行没有意义, 直接提示已存在的实例
@@ -371,13 +438,14 @@ func openAdminWindow(u string) {
 			if _, err := os.Stat(name); err != nil {
 				continue
 			}
-			cmd := exec.Command(name, "--app="+u, "--window-size=1180,840")
+			cmd := exec.Command(name, "--app="+u, "--start-maximized")
 			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 			if err := cmd.Start(); err != nil {
 				logf("以应用窗口打开管理页失败: %v", err)
 				continue
 			}
 			logf("管理窗口已打开: %s", u)
+			go maximizeAdminWindow()
 			return
 		}
 	}
