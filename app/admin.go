@@ -56,6 +56,8 @@ func (a *adminAPI) serve(w http.ResponseWriter, r *http.Request) {
 		a.fetchModels(w, r)
 	case "/_api/models/import":
 		a.importModels(w, r)
+	case "/_api/usage":
+		a.usage(w, r)
 	default:
 		writeJSONError(w, http.StatusNotFound, "admin_error", "未知接口: "+r.URL.Path)
 	}
@@ -97,6 +99,7 @@ func (a *adminAPI) writeConfig(w http.ResponseWriter) {
 		"default":         c.DefaultProvider,
 		"client_base_url": clientBaseURL(),
 		"config_path":     cfgPath,
+		"usage_path":      usagePath,
 		"config_error":    cfgLoadErr,
 	})
 }
@@ -483,6 +486,25 @@ func (a *adminAPI) importModels(w http.ResponseWriter, r *http.Request) {
 	logf("导入模型 %d 个（跳过已存在 %d 个）到供应商 %s", imported, skipped, in.ProviderID)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"ok": true, "imported": imported, "skipped": skipped})
+}
+
+// usage 按日期区间汇总转发记录, 供用量统计页画图和列表
+func (a *adminAPI) usage(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "admin_error", "请求解析失败: "+err.Error())
+		return
+	}
+	report, err := usageSummary(in.From, in.To)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "admin_error", err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(report)
 }
 
 func findProvider(c *Config, id string) *Provider {

@@ -18,16 +18,30 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 )
 
 type routeCtxKey struct{}
 
 type route struct {
-	provider *Provider
-	base     *url.URL
-	model    *Model // nil = 沿用客户端传来的模型名
-	tail     string
-	session  string
+	provider    *Provider
+	base        *url.URL
+	model       *Model // nil = 沿用客户端传来的模型名
+	clientModel string
+	tail        string
+	session     string
+}
+
+// modelLabel 是记进用量统计的模型名: 命中配置就用配置值, 没命中记客户端带来的名字
+func (rt *route) modelLabel() string {
+	switch {
+	case rt.model != nil:
+		return rt.model.ID
+	case rt.clientModel != "":
+		return rt.clientModel
+	default:
+		return "-"
+	}
 }
 
 // chatTails 需要按配置改写请求体的推理入口
@@ -63,10 +77,29 @@ func newGateway() http.Handler {
 				target += "/" + rt.model.ID
 			}
 			logf("%s %s -> %d [%s]", resp.Request.Method, resp.Request.URL.Path, resp.StatusCode, target)
+			// 只有真正转发出去的推理请求算用量; GET 与本机直接回的接口不计
+			if resp.Request.Method != http.MethodPost {
+				return nil
+			}
+			// 响应体边转发边扫 usage, 读结束时落一条用量记录
+			resp.Body = newUsageTee(resp.Body, usageRec{
+				Date:     usageDate(time.Now()),
+				Provider: rt.provider.Name,
+				Model:    rt.modelLabel(),
+				Status:   resp.StatusCode,
+			})
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			logf("%s %s -> 转发失败: %v", r.Method, r.URL.Path, err)
+			if rt, ok := r.Context().Value(routeCtxKey{}).(*route); ok && r.Method == http.MethodPost {
+				appendUsage(usageRec{
+					Date:     usageDate(time.Now()),
+					Provider: rt.provider.Name,
+					Model:    rt.modelLabel(),
+					Status:   http.StatusBadGateway,
+				})
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadGateway)
 			fmt.Fprintf(w, `{"error":{"type":"proxy_error","message":%q}}`, err.Error())
@@ -140,6 +173,10 @@ func buildRoute(tail string, payload map[string]json.RawMessage, body []byte) (*
 	provider, index := cfg.findModel(clientModel)
 	if provider == nil {
 		provider, index = cfg.defaultRoute()
+		if payload == nil {
+			// 非推理入口不读请求体, 模型名未知, 别把默认模型冒充成实际用的那个
+			index = -1
+		}
 	}
 	if provider == nil {
 		cfgMu.RUnlock()
@@ -149,7 +186,7 @@ func buildRoute(tail string, payload map[string]json.RawMessage, body []byte) (*
 	cp.Models = append([]Model(nil), provider.Models...)
 	cfgMu.RUnlock()
 
-	rt := &route{provider: &cp, tail: tail}
+	rt := &route{provider: &cp, tail: tail, clientModel: clientModel}
 	if index >= 0 {
 		rt.model = &cp.Models[index]
 	}

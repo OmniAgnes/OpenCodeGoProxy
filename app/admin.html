@@ -13,13 +13,13 @@
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}
   a{color:var(--accent);text-decoration:none}
-  header{padding:18px 24px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+  header{padding:18px max(24px, calc((100% - 1180px) / 2)) 14px;border-bottom:1px solid var(--line);background:var(--panel)}
   h1{margin:0;font-size:17px;font-weight:600}
   h1 span{color:var(--muted);font-weight:400;font-size:13px;margin-left:8px}
   .接入{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center}
   .接入 code{background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:Consolas,monospace;font-size:13px}
   .接入 .hint{color:var(--muted);font-size:12px}
-  main{padding:20px 24px 60px;max-width:1180px}
+  main{padding:20px 24px 60px;max-width:1180px;margin:0 auto}
   .bar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
   .bar h2{margin:0;font-size:15px;font-weight:600}
   table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px}
@@ -68,12 +68,37 @@
   .list-tools{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
   .list-tools input[type=text]{width:260px}
   .num{font-variant-numeric:tabular-nums}
+  .nav{display:flex;gap:6px;margin-top:12px}
+  .nav a{padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg);font-size:13px}
+  .nav a:hover{border-color:#9db4e6;background:#f3f7ff}
+  .nav a.on{border-color:var(--accent);background:#eaf1fe;color:var(--accent);font-weight:500}
+  input[type=date]{padding:7px 10px;background:var(--panel);border:1px solid #ccd4e0;border-radius:6px;color:var(--fg);font-family:Consolas,monospace;font-size:13.5px}
+  input[type=date]:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px #e3ecfd}
+  .range{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .seg{display:inline-flex;border:1px solid #ccd4e0;border-radius:6px;overflow:hidden}
+  .seg button{border:none;border-radius:0;border-right:1px solid #ccd4e0;padding:5px 12px}
+  .seg button:last-child{border-right:none}
+  .seg button.on{background:var(--accent);color:#fff}
+  .seg button.on:hover{background:var(--accent)}
+  .cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 14px;min-width:126px}
+  .card b{display:block;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.3}
+  .card span{color:var(--muted);font-size:12px}
+  .chart{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:18px}
+  .chart .cap{color:var(--muted);font-size:12px;margin-bottom:8px}
+  .chart svg{display:block;max-width:100%}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  .meter{display:inline-block;height:6px;width:70px;border-radius:3px;background:#e7ecf4;overflow:hidden;vertical-align:1px}
+  .meter i{display:block;height:100%;background:var(--accent);border-radius:3px}
+  h3{margin:22px 0 10px;font-size:14px;font-weight:600}
 </style>
 </head>
 <body>
 <header>
-  <h1>OpenCode Go 代理 <span>模型管理</span></h1>
+  <h1>OpenCode Go 代理 <span>本机模型网关</span></h1>
   <div class="接入" id="接入"></div>
+  <nav class="nav" id="nav"></nav>
 </header>
 <main id="app">加载中…</main>
 <div id="toast"></div>
@@ -81,6 +106,9 @@
 const $app = document.getElementById('app');
 let CONFIG = null;
 let LAST = null; // 模型页当次自动获取的结果：{pid, models, source, error}
+let USAGE = null; // 用量页当次结果：{range, data, error}
+let USAGE_METRIC = 'reqs'; // reqs | tokens
+const RANGE_KEY = 'ogp-usage-range';
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
@@ -111,6 +139,14 @@ function renderHeader() {
     '<button class="link" onclick="copyText(\'' + esc(c.client_base_url) + '\')">复制</button>' +
     '<span class="hint">其它工具填这个地址，API Key 和模型名随便写，由这里决定实际调用哪个供应商与默认模型</span>' +
     (c.default ? '' : '<span class="tag warn">未设默认供应商</span>');
+  const h = location.hash || '#/';
+  const items = [['#/', '供应商与模型'], ['#/usage', '用量统计']];
+  const isActive = href => href === '#/usage'
+    ? h.startsWith('#/usage')
+    : (h === '#/' || h.startsWith('#/provider') || h.startsWith('#/model'));
+  document.getElementById('nav').innerHTML = items.map(([href, name]) =>
+    `<a href="${href}"${isActive(href) ? ' class="on"' : ''}>${name}</a>`).join('');
+  document.title = (isActive('#/usage') ? '用量统计' : '模型管理') + ' · OpenCode Go 代理';
 }
 
 function copyText(t) {
@@ -119,6 +155,15 @@ function copyText(t) {
 
 const go = h => location.hash = h;
 const fmt = n => n ? n.toLocaleString('en-US') : '';
+// 图表刻度与汇总用 K/M/B，表格里给完整数字
+function fmtK(n) {
+  n = Number(n) || 0;
+  const a = Math.abs(n);
+  if (a >= 1e9) return (n / 1e9).toFixed(a >= 1e10 ? 0 : 1).replace(/\.0$/, '') + 'B';
+  if (a >= 1e6) return (n / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M';
+  if (a >= 1e3) return (n / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace(/\.0$/, '') + 'K';
+  return String(n);
+}
 
 function banner() {
   return CONFIG.config_error ? '<div class="banner">' + esc(CONFIG.config_error) + '</div>' : '';
@@ -341,8 +386,165 @@ function renderModelForm(pid, mid) {
   };
 }
 
+// 用量统计：默认最近一个月，可选时间范围；图是按供应商堆叠的每日柱状图
+const PALETTE = ['#2f6fed', '#0d6832', '#7a4f00', '#8a4fa0', '#0d6a7a', '#c22f2f', '#b03a6a', '#5a6472'];
+const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+const lastDays = n => { const to = new Date(), from = new Date(); from.setDate(to.getDate() - (n - 1)); return {from: ymd(from), to: ymd(to)}; };
+const thisYear = () => { const now = new Date(); return {from: ymd(new Date(now.getFullYear(), 0, 1)), to: ymd(now)}; };
+
+function savedRange() {
+  try {
+    const s = JSON.parse(localStorage.getItem(RANGE_KEY) || 'null');
+    if (s && /^\d{4}-\d{2}-\d{2}$/.test(s.from) && /^\d{4}-\d{2}-\d{2}$/.test(s.to) && s.from <= s.to) return s;
+  } catch (e) {}
+  return lastDays(30);
+}
+
+function niceStep(raw) {
+  if (!(raw > 0)) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const m = raw / p;
+  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
+}
+
+async function renderUsage() { await usageLoad(savedRange()); }
+
+async function usageLoad(range) {
+  USAGE = {range, data: null, error: ''};
+  localStorage.setItem(RANGE_KEY, JSON.stringify(range));
+  $app.innerHTML = banner() + '<div class="empty">正在汇总用量…</div>';
+  try { USAGE.data = await api('/_api/usage', range); } catch (e) { USAGE.error = e.message; }
+  drawUsage();
+}
+
+function usageQuery() {
+  const from = document.getElementById('from').value, to = document.getElementById('to').value;
+  if (!from || !to) return toast('开始和结束日期都要填', 'err');
+  if (from > to) return toast('结束日期不能早于开始日期', 'err');
+  usageLoad({from, to});
+}
+
+function usagePreset(n) { usageLoad(n === 'y' ? thisYear() : lastDays(n)); }
+function usageMetric(m) { USAGE_METRIC = m; drawUsage(); }
+
+function usageToolbar() {
+  const r = USAGE.range;
+  const seg = `<div class="seg">
+      <button class="${USAGE_METRIC === 'reqs' ? 'on' : ''}" onclick="usageMetric('reqs')">请求数</button>
+      <button class="${USAGE_METRIC === 'tokens' ? 'on' : ''}" onclick="usageMetric('tokens')">Token</button></div>`;
+  const presets = [[7, '最近 7 天'], [30, '最近一个月'], [90, '最近 90 天']]
+    .map(([n, t]) => `<button onclick="usagePreset(${n})">${t}</button>`).join('') +
+    `<button onclick="usagePreset('y')">本年</button>`;
+  return `<div class="range">
+      <input type="date" id="from" value="${esc(r.from)}"><span style="color:var(--muted)">至</span>
+      <input type="date" id="to" value="${esc(r.to)}">
+      <button class="primary" onclick="usageQuery()">查询</button>${seg}
+      <span style="flex:1"></span>${presets}</div>`;
+}
+
+function usageCells(row, total) {
+  const share = total ? Math.round(row.reqs * 100 / total) : 0;
+  return `<td class="num">${fmt(row.reqs) || '0'}</td>` +
+    `<td>${row.failed ? `<span class="tag warn">${fmt(row.failed)}</span>` : '<span class="tag off">0</span>'}</td>` +
+    `<td class="num">${fmt(row.prompt) || '-'}</td>` +
+    `<td class="num">${fmt(row.completion) || '-'}</td>` +
+    `<td class="num">${fmt(row.tokens) || '-'}</td>` +
+    `<td><span class="meter" title="占所选区间请求数 ${share}%"><i style="width:${share}%"></i></span> ${share}%</td>`;
+}
+
+function usageChart(d) {
+  const key = USAGE_METRIC === 'tokens' ? 'tokens' : 'reqs';
+  const days = d.daily, series = d.series, n = days.length;
+  const slot = Math.max(9, Math.min(24, Math.floor(900 / n)));
+  const padL = 46, padT = 8, plotH = 190, plotB = 26;
+  const W = padL + slot * n + 12, H = padT + plotH + plotB;
+  const per = days.map((row, i) => series.reduce((s, se) => s + (se[key][i] || 0), 0));
+  const max = Math.max.apply(null, [1].concat(per));
+  const step = Math.max(1, niceStep(max / 4));
+  const top = Math.ceil(max / step) * step;
+  const y = v => padT + plotH - (v / top) * plotH;
+
+  let grid = '', ticks = '';
+  for (let v = 0; v <= top + 1e-9; v += step) {
+    const yy = y(v).toFixed(1);
+    grid += `<line x1="${padL}" y1="${yy}" x2="${W - 8}" y2="${yy}" stroke="#e5eaf2"/>`;
+    ticks += `<text x="${padL - 8}" y="${yy}" dy="4" text-anchor="end" font-size="10" fill="#656f80">${fmtK(v)}</text>`;
+  }
+
+  let bars = '';
+  const every = Math.ceil(n / 15);
+  days.forEach((row, i) => {
+    const x = padL + i * slot, w = Math.max(2, slot - 2);
+    let acc = 0;
+    series.forEach((se, k) => {
+      const v = se[key][i] || 0;
+      if (!v) return;
+      const h = (v / top) * plotH;
+      bars += `<rect x="${x + 1}" y="${y(acc + v).toFixed(1)}" width="${w}" height="${Math.max(1, h).toFixed(1)}" fill="${PALETTE[k % PALETTE.length]}">` +
+        `<title>${esc(se.provider)} · ${esc(row.date)} · ${fmt(v)}${key === 'reqs' ? ' 次请求' : ' token'}</title></rect>`;
+      acc += v;
+    });
+    if (row.failed) {
+      bars += `<rect x="${x + 1}" y="${(y(acc) - 4).toFixed(1)}" width="${w}" height="3" fill="#c22f2f">` +
+        `<title>${esc(row.date)} · ${fmt(row.failed)} 次失败</title></rect>`;
+    }
+    if ((i + 1) % every === 0 || i === n - 1) {
+      bars += `<text x="${(x + slot / 2).toFixed(1)}" y="${padT + plotH + 16}" text-anchor="middle" font-size="10" fill="#656f80">${esc(row.date.slice(5))}</text>`;
+    }
+  });
+  const legend = series.map((se, k) =>
+    `<span><i style="background:${PALETTE[k % PALETTE.length]}"></i>${esc(se.provider)}</span>`).join('');
+  const cap = key === 'reqs'
+    ? '每日请求数（按供应商堆叠，红线是那天的失败请求）'
+    : '每日 token（输入 + 输出，按供应商堆叠；上游没回 usage 的请求只算次数）';
+  return `<div class="chart"><div class="cap">${cap}</div>
+      <svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${grid}${ticks}${bars}</svg>
+      <div class="legend">${legend}</div></div>`;
+}
+
+function drawUsage() {
+  const head = `<div class="bar"><h2>用量统计</h2><div>
+      <button onclick="usageLoad(USAGE.range)">刷新</button>
+      <button onclick="go('#/')">返回供应商</button></div></div>`;
+  if (USAGE.error) {
+    $app.innerHTML = banner() + head + usageToolbar() + '<div class="banner">汇总失败：' + esc(USAGE.error) + '</div>';
+    return;
+  }
+  const d = USAGE.data, t = d.totals;
+  const note = `<p class="desc" style="margin-top:14px">请求数 = 网关 POST 到上游的次数；GET、以及由本机返回、没转发给上游的请求都不算。` +
+    `token 取自上游响应里的 usage，流式没带 include_usage 时只有请求数。<br>` +
+    `模型是实际打出去的那个名字：客户端模型名没命中已配置模型时，记的就是客户端带来的名字。<br>` +
+    `记录文件：<code style="font-family:Consolas,monospace">${esc(CONFIG.usage_path || '')}</code>，只在本机，重启不清空。</p>`;
+  if (!t.reqs) {
+    const hint = d.records
+      ? `记录里已有 ${fmt(d.records)} 条，最近一条在 ${esc(d.last_date || '')}，把时间范围挪到那几天再看看。`
+      : '网关每转发一次请求就记一条，先用客户端跑一次对话再回来看。';
+    $app.innerHTML = banner() + head + usageToolbar() + `<div class="empty">所选区间没有用量记录。<br>${hint}</div>` + note;
+    return;
+  }
+  const activeDays = d.daily.filter(x => x.reqs).length;
+  const cards = `<div class="cards">
+      <div class="card"><b>${fmt(t.reqs) || '0'}</b><span>请求（失败 ${fmt(t.failed) || '0'}）</span></div>
+      <div class="card"><b>${fmt(t.prompt) || '0'}</b><span>输入 token</span></div>
+      <div class="card"><b>${fmt(t.completion) || '0'}</b><span>输出 token</span></div>
+      <div class="card"><b>${fmt(t.tokens) || '0'}</b><span>token 合计</span></div>
+      <div class="card"><b>${activeDays} / ${d.day_count}</b><span>有用量的天数</span></div></div>`;
+
+  const dayRows = d.daily.map(r => `<tr><td>${esc(r.date)}</td>${usageCells(r, t.reqs)}</tr>`).join('');
+  const provRows = d.providers.map(p => `<tr><td>${esc(p.provider)}</td>${usageCells(p, t.reqs)}</tr>`).join('');
+  const modelRows = d.models.map(m => `<tr><td>${esc(m.provider)}</td><td class="mid" title="${esc(m.model)}">${esc(m.model)}</td>${usageCells(m, t.reqs)}</tr>`).join('');
+  const th = '<th>请求</th><th>失败</th><th>输入 token</th><th>输出 token</th><th>合计</th><th>占比</th>';
+
+  $app.innerHTML = banner() + head + usageToolbar() + cards + usageChart(d) +
+    `<h3>按供应商</h3><div class="table-wrap"><table><thead><tr><th>供应商</th>${th}</tr></thead><tbody>${provRows}</tbody></table></div>
+     <h3>按模型</h3><div class="table-wrap"><table><thead><tr><th>供应商</th><th>模型</th>${th}</tr></thead><tbody>${modelRows}</tbody></table></div>
+     <h3>按天（${esc(d.from)} 至 ${esc(d.to)}）</h3>
+     <div class="table-wrap"><table><thead><tr><th>日期</th>${th}</tr></thead><tbody>${dayRows}</tbody></table></div>` + note;
+}
+
 const routes = [
   [/^#\/$/, renderProviders],
+  [/^#\/usage$/, renderUsage],
   [/^#\/provider\/new$/, () => renderProviderForm('')],
   [/^#\/provider\/(.+)$/, m => renderProviderForm(decodeURIComponent(m[1]))],
   [/^#\/models\/([^?]+)$/, m => renderModels(decodeURIComponent(m[1]))],
@@ -353,6 +555,7 @@ const routes = [
 async function route() {
   try { await reload(); } catch (e) { $app.innerHTML = '<div class="banner">' + esc(e.message) + '</div>'; return; }
   LAST = null;
+  USAGE = null; // 用量页每次进来重新汇总，图表才是最新的
   const h = location.hash || '#/';
   for (const re of routes) {
     const m = h.match(re[0]);

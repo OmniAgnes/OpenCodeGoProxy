@@ -80,6 +80,7 @@ func main() {
 
 	initLog()
 	loadConfig()
+	initUsage()
 	systray.Run(onReady, onExit)
 }
 
@@ -91,7 +92,8 @@ func onReady() {
 	statusItem = systray.AddMenuItem("状态：启动中…", "")
 	statusItem.Disable()
 	systray.AddSeparator()
-	mModels := systray.AddMenuItem("模型管理…", "打开供应商与模型管理窗口")
+	mModels := systray.AddMenuItem("模型管理", "打开供应商与模型管理窗口")
+	mUsage := systray.AddMenuItem("用量统计", "打开按天/供应商/模型的用量统计窗口")
 	mCopy := systray.AddMenuItem("复制 Base URL", "复制后粘贴到 Qoder 的自定义模型")
 	mHelp := systray.AddMenuItem("使用说明", "")
 	mLog := systray.AddMenuItem("打开日志", "")
@@ -120,6 +122,12 @@ func onReady() {
 	go func() {
 		for range mModels.ClickedCh {
 			openAdminWindow(adminURL())
+		}
+	}()
+
+	go func() {
+		for range mUsage.ClickedCh {
+			openAdminWindow(adminURL() + "#/usage")
 		}
 	}()
 
@@ -179,6 +187,7 @@ func onReady() {
 
 func onExit() {
 	stopServer()
+	closeUsage()
 	closeLog()
 }
 
@@ -233,7 +242,7 @@ func stopServer() {
 func helpText() string {
 	return appTitle + " 使用说明\n\n" +
 		"1. 托盘图标绿色 = 网关正常，红色 = 未启动。\n\n" +
-		"2. 右键托盘 →「模型管理…」，添加供应商（接口地址 + API Key）。\n" +
+		"2. 右键托盘 →「模型管理」，添加供应商（接口地址 + API Key）。\n" +
 		"   本工具不内置任何 Key；供应商 API Key 留空时，直接用客户端带来的 Key。\n\n" +
 		"3. 打开某个供应商的模型页会自动从上游拉取模型：\n" +
 		"   接口地址是 " + GoBaseURL + " 时，自动补 Go 需要的会话头，\n" +
@@ -242,7 +251,9 @@ func helpText() string {
 		"   Base URL 填：\n   " + clientBaseURL() + "\n" +
 		"   API Key 与模型 ID 随便填，实际调用由本工具的默认供应商/默认模型决定；\n" +
 		"   模型 ID 若与「模型管理」里某个模型同名，则直接走那个模型。\n\n" +
-		"5. 配置即时生效，不用重启；配置文件在\n   " + filepath.Join(configDir(), "config.json") + "\n\n" +
+		"5. 托盘「用量统计」看每天的用量：按天/供应商/模型统计请求数与 token，\n" +
+		"   默认最近一个月，可以自己选时间范围；记录在\n   " + filepath.Join(configDir(), "usage.jsonl") + "\n\n" +
+		"6. 配置即时生效，不用重启；配置文件在\n   " + filepath.Join(configDir(), "config.json") + "\n\n" +
 		"提示：老地址 " + "http://127.0.0.1:" + strconv.Itoa(int(currentPort.Load())) + "/inference/go/openai/v1 仍然可用。"
 }
 
